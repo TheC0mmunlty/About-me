@@ -215,3 +215,4 @@ $("mb-acct").onclick = () => open("account");
 $("mb-close").onclick = () => { $("mb-panel").hidden = true; mode = null; };
 
 init();
+window.mbReady = true;
