@@ -11,6 +11,16 @@
   <link rel="stylesheet" href="index.css">
 </head>
 <body>
+  <div id="mb-bar">
+    <button id="mb-write" type="button">✉ Feedback</button>
+    <button id="mb-inbox" type="button">📥 Inbox <span id="mb-badge" hidden>0</span></button>
+    <button id="mb-acct" type="button">👤 Sign in / up</button>
+  </div>
+  <section id="mb-panel" hidden>
+    <header><strong id="mb-title"></strong><button id="mb-close" type="button" aria-label="Close">✕</button></header>
+    <div id="mb-body"></div>
+  </section>
+
   <div class="page">
   <header class="hero">
     <p class="intro">Hi, I'm</p>
@@ -58,6 +68,6 @@
   </div>
 
   <script src="index.js"></script>
-  <script type="module" src="messages.js"></script>
+  <script src="messages.js"></script>
 </body>
 </html>
