@@ -79,10 +79,18 @@
       appId: "1:177588979011:web:aa695938dc4b070bdadbf6"
     };
     const ADMIN_EMAIL = "fahid.001x@gmail.com";
+    const NAME_RE = /^[A-Za-z0-9_.]{3,20}$/;
 
     const $ = (id) => document.getElementById(id);
-    let fb = null, uid = null, msgs = [], mode = null, unsub = null, problem = "";
+    let fb = null, uid = null, username = "", profileLoaded = false, setupError = "";
+    let msgs = [], mode = null, unsub = null, problem = "";
     const marking = new Set();
+
+    const store = {
+      get: (k) => { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+      set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} },
+      del: (k) => { try { sessionStorage.removeItem(k); } catch (e) {} }
+    };
 
     function explain(e) {
       const host = location.hostname || "(use Live Server, don't double-click the file)";
@@ -96,7 +104,7 @@
         case "auth/network-request-failed":
           return "Network problem. Check your internet and try again.";
         case "permission-denied":
-          return "Firestore rules aren't published yet. Paste the rules in Firestore > Rules and click Publish.";
+          return "Not allowed. Make sure the latest rules are published in Firestore > Rules.";
       }
       return (e && e.message) || String(e);
     }
@@ -120,28 +128,53 @@
       if (mode) open(mode);
     }
 
+    async function loadProfile(user) {
+      profileLoaded = false;
+      username = "";
+      try {
+        const { getDoc, doc } = fb.F;
+        const s = await getDoc(doc(fb.db, "users", user.uid));
+        username = s.exists() ? s.data().username : "";
+        profileLoaded = true;
+        const pend = store.get("pendingUsername");
+        if (!user.isAnonymous) {
+          if (!username && pend) {
+            try { await saveUsername(pend); setupError = ""; }
+            catch (e) { setupError = e.message || explain(e); }
+          }
+          store.del("pendingUsername");
+        }
+      } catch (e) {
+        profileLoaded = true;
+        console.error(e);
+      }
+      if (mode) open(mode);
+    }
+
     function onUser(user) {
       if (unsub) { unsub(); unsub = null; }
       if (!user) {
-        uid = null; msgs = []; render();
+        uid = null; username = ""; profileLoaded = false; msgs = []; render();
         fb.A.signInAnonymously(fb.auth)
           .then(() => { problem = ""; })
           .catch((e) => { problem = explain(e); console.error(e); if (mode) open(mode); });
-        if (mode === "account") drawAccount();
+        if (mode) open(mode);
         return;
       }
       uid = user.uid;
       problem = "";
+      loadProfile(user);
       const { collection, query, where, onSnapshot } = fb.F;
       unsub = onSnapshot(query(collection(fb.db, "messages"), where("uid", "==", uid)), (snap) => {
         msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         render();
       }, (e) => { problem = explain(e); console.error(e); });
-      if (mode) open(mode);
     }
 
     const unread = () => msgs.filter((m) => m.reply && !m.seen);
+    const realUser = () => { const u = fb && fb.auth.currentUser; return u && !u.isAnonymous ? u : null; };
+    const needsUsername = () => realUser() && profileLoaded && !username;
 
     function render() {
       const n = unread().length;
@@ -160,34 +193,40 @@
         if (problem) $("mb-s").className = "mb-err";
         return;
       }
+      if (realUser() && !profileLoaded) {
+        $("mb-title").textContent = "Loading...";
+        $("mb-body").innerHTML = '<p class="mb-note">Checking your account...</p>';
+        return;
+      }
+      if (needsUsername()) return drawSetup();
       if (m === "write") drawWrite();
       else if (m === "inbox") drawInbox();
       else drawAccount();
     }
 
     function drawWrite() {
+      if ($("mb-text") && $("mb-text").value) return;
       $("mb-title").textContent = "Send me feedback";
+      if (!realUser() || !username) {
+        $("mb-body").innerHTML = '<p class="mb-note">To send feedback, sign up first. A username is required.</p><button class="send" id="mb-go" type="button">Sign up / Sign in</button>';
+        $("mb-go").onclick = () => open("account");
+        return;
+      }
       $("mb-body").innerHTML = `
-        <input id="mb-name" maxlength="40" placeholder="Your name (optional)">
+        <p class="mb-note" id="mb-as"></p>
         <textarea id="mb-text" maxlength="1000" placeholder="Feedback, support, or just say hi..."></textarea>
         <button class="send" id="mb-send" type="button">Send</button>
-        <p class="mb-note" id="mb-status"></p>`;
+        <p class="mb-note" id="mb-status">I'll reply in your inbox (a red circle shows when I do).</p>`;
+      $("mb-as").textContent = "Sending as @" + username;
       const s = $("mb-status");
-      if (!uid) {
-        s.className = "mb-err";
-        s.textContent = (problem ? problem + " " : "") + "You can also use the Sign in / up button, then come back and send.";
-      } else {
-        s.textContent = "I'll reply in your inbox (a red circle shows when I do).";
-      }
       $("mb-send").onclick = async () => {
         const text = $("mb-text").value.trim();
         if (!text) return;
-        if (!uid) { s.className = "mb-err"; s.textContent = "Not connected yet. " + (problem || "Try again in a moment."); return; }
         $("mb-send").disabled = true;
         try {
           const { addDoc, collection, serverTimestamp } = fb.F;
           await addDoc(collection(fb.db, "messages"), {
-            uid, name: $("mb-name").value.trim(), text,
+            uid, name: "@" + username, text,
             reply: "", seen: false, createdAt: serverTimestamp()
           });
           $("mb-text").value = "";
@@ -241,15 +280,55 @@
       });
     }
 
+    async function saveUsername(raw) {
+      const name = String(raw || "").trim();
+      if (!NAME_RE.test(name)) throw new Error("Use 3 to 20 letters, numbers, _ or . (no spaces).");
+      if (!uid) throw new Error("Not connected yet. Try again in a moment.");
+      const { writeBatch, doc } = fb.F;
+      const b = writeBatch(fb.db);
+      b.set(doc(fb.db, "usernames", name.toLowerCase()), { uid });
+      b.set(doc(fb.db, "users", uid), { username: name });
+      try {
+        await b.commit();
+      } catch (e) {
+        if (e.code === "permission-denied") throw new Error("That username is taken (or the latest rules aren't published). Try another.");
+        throw e;
+      }
+      username = name;
+    }
+
+    function drawSetup() {
+      if ($("mb-user") && $("mb-user") === document.activeElement) return;
+      $("mb-title").textContent = "Choose a username";
+      $("mb-body").innerHTML = `
+        <p class="mb-note">One last step: pick a username. It's required.</p>
+        <input id="mb-user" maxlength="20" placeholder="Username (3-20 letters, numbers, _ .)" autocomplete="off">
+        <button class="send" id="mb-saveu" type="button">Save and continue</button>
+        <p class="mb-err" id="mb-ustatus"></p>
+        <button class="send" id="mb-out" type="button" style="background:#3f5f57;margin-top:.6rem">Sign out</button>`;
+      $("mb-ustatus").textContent = setupError;
+      $("mb-saveu").onclick = async () => {
+        $("mb-ustatus").textContent = "Saving...";
+        try {
+          await saveUsername($("mb-user").value);
+          setupError = "";
+          open(mode === "write" || mode === "inbox" ? mode : "account");
+        } catch (e) {
+          $("mb-ustatus").textContent = e.message || explain(e);
+        }
+      };
+      $("mb-out").onclick = () => fb.A.signOut(fb.auth).catch(console.error);
+    }
+
     function drawAccount() {
       if (!fb) return;
+      if ($("mb-user") && $("mb-user") === document.activeElement) return;
       $("mb-title").textContent = "Sign in / Sign up";
-      const user = fb.auth.currentUser;
+      const user = realUser();
       const body = $("mb-body");
-      body.innerHTML = '<p class="mb-note" id="mb-who"></p><button class="send" id="mb-act" type="button"></button><p class="mb-err" id="mb-status"></p>';
-      if (user && !user.isAnonymous) {
-        $("mb-who").textContent = "Signed in as " + (user.email || user.displayName);
-        $("mb-act").textContent = "Sign out";
+      if (user) {
+        body.innerHTML = '<p class="mb-note" id="mb-who"></p><button class="send" id="mb-act" type="button">Sign out</button>';
+        $("mb-who").textContent = "Signed in as @" + username + " (" + (user.email || user.displayName) + ")";
         $("mb-act").onclick = () => fb.A.signOut(fb.auth).catch(console.error);
         if (user.email === fb.admin) {
           const a = document.createElement("a");
@@ -258,11 +337,26 @@
           a.style.cssText = "display:block;margin-top:.8rem;font-weight:600";
           body.appendChild(a);
         }
-      } else {
-        $("mb-who").textContent = "Sign in or sign up with Google to keep your inbox on any device. Your past messages stay with you.";
-        $("mb-act").textContent = "Continue with Google";
-        $("mb-act").onclick = google;
+        return;
       }
+      body.innerHTML = `
+        <p class="mb-note"><b>Create an account</b><br>Pick a username (required), then sign up with Google.</p>
+        <input id="mb-user" maxlength="20" placeholder="Username (3-20 letters, numbers, _ .)" autocomplete="off">
+        <button class="send" id="mb-signup" type="button">Sign up with Google</button>
+        <p class="mb-err" id="mb-status"></p>
+        <hr>
+        <p class="mb-note">Already have an account?</p>
+        <button class="send" id="mb-signin" type="button" style="background:#3f5f57">Sign in with Google</button>`;
+      $("mb-signup").onclick = () => {
+        const name = $("mb-user").value.trim();
+        if (!NAME_RE.test(name)) {
+          $("mb-status").textContent = "Pick a username first: 3 to 20 letters, numbers, _ or . (no spaces).";
+          return;
+        }
+        store.set("pendingUsername", name);
+        google();
+      };
+      $("mb-signin").onclick = () => { store.del("pendingUsername"); google(); };
     }
 
     async function google() {
@@ -272,15 +366,19 @@
       status("Opening Google...");
       try {
         const u = fb.auth.currentUser;
-        if (u && u.isAnonymous) await linkWithPopup(u, provider);
-        else await signInWithPopup(fb.auth, provider);
+        if (u && u.isAnonymous) {
+          await linkWithPopup(u, provider);
+          await loadProfile(fb.auth.currentUser);
+        } else {
+          await signInWithPopup(fb.auth, provider);
+        }
         problem = "";
-        drawAccount();
+        if (mode) open(mode);
       } catch (e) {
         if (e.code === "auth/credential-already-in-use" || e.code === "auth/email-already-in-use") {
           const cred = GoogleAuthProvider.credentialFromError(e);
           if (cred) {
-            try { await signInWithCredential(fb.auth, cred); drawAccount(); return; } catch (e2) { e = e2; }
+            try { await signInWithCredential(fb.auth, cred); return; } catch (e2) { e = e2; }
           }
         }
         if (e.code === "auth/popup-blocked") { signInWithRedirect(fb.auth, provider); return; }
