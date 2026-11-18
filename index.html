@@ -68,6 +68,28 @@
   </div>
 
   <script src="index.js"></script>
-  <script src="messages.js"></script>
+
+  <script>
+    // Backup: if messages.js doesn't start, clicking a button shows why
+    var mbErr = "";
+    addEventListener("error", function (e) {
+      if (!mbErr) mbErr = (e.message || "error") + " [" + String(e.filename || "").split("/").pop() + " line " + e.lineno + "]";
+    });
+    ["mb-write", "mb-inbox", "mb-acct"].forEach(function (id) {
+      document.getElementById(id).addEventListener("click", function () {
+        if (window.mbReady) return;
+        document.getElementById("mb-panel").hidden = false;
+        document.getElementById("mb-title").textContent = "Not working yet";
+        document.getElementById("mb-body").textContent =
+          "messages.js didn't start. " + (mbErr ||
+          "It may be missing, misnamed, or not in the same folder as index.html. Open the page with Live Server, not by double-clicking.");
+      });
+    });
+    document.getElementById("mb-close").addEventListener("click", function () {
+      document.getElementById("mb-panel").hidden = true;
+    });
+  </script>
+
+  <script type="module" src="messages.js"></script>
 </body>
 </html>
