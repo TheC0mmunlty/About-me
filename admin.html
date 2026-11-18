@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Dashboard</title>
+<style>
+body{margin:0;background:#0e1c19;color:#e6f0ed;font-family:Inter,system-ui,sans-serif}
+main{max-width:50rem;margin:0 auto;padding:2rem 1.2rem}
+h1{margin:0 0 1rem}
+button{padding:.5rem 1rem;border:0;border-radius:.4rem;background:#5eead4;color:#0e1c19;font:inherit;font-weight:600;cursor:pointer}
+button.alt{background:#24403a;color:#e6f0ed}
+.stats{display:flex;gap:1rem;margin:1rem 0}
+.stat{flex:1;padding:1rem;background:#16302b;border-radius:.6rem}
+.stat b{display:block;font-size:1.8rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem}
+.card{margin-bottom:1rem;padding:1rem;background:#16302b;border:1px solid #24403a;border-radius:.6rem}
+.card.waiting{border-color:#e11d48}
+.meta{color:#9bb5ae;font-size:.85rem}
+.text{margin:.5rem 0;white-space:pre-wrap}
+textarea{width:100%;min-height:4rem;padding:.5rem;font:inherit;background:#0e1c19;color:#e6f0ed;border:1px solid #24403a;border-radius:.4rem}
+.row{display:flex;gap:.5rem;margin-top:.5rem}
+.sent{margin-top:.5rem;padding:.5rem;border-left:4px solid #5eead4;background:#0e1c19}
+</style>
+</head>
+<body>
+<main>
+  <h1>Dashboard</h1>
+  <div id="login"><button id="signin">Sign in with Google</button></div>
+  <div id="app" hidden>
+    <p><span id="who"></span> <button class="alt" id="signout">Sign out</button></p>
+    <div class="stats">
+      <div class="stat"><b id="s-total">0</b>Total messages</div>
+      <div class="stat"><b id="s-wait">0</b>Need a reply</div>
+    </div>
+    <div class="tabs">
+      <button id="t-wait">Need reply</button>
+      <button class="alt" id="t-all">All</button>
+    </div>
+    <div id="list"></div>
+  </div>
+  <p id="msg"></p>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig, ADMIN_EMAIL } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = (id) => document.getElementById(id);
+let msgs = [], filter = "wait", unsub = null;
+
+$("signin").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => $("msg").textContent = e.message);
+$("signout").onclick = () => signOut(auth);
+$("t-wait").onclick = () => { filter = "wait"; draw(); };
+$("t-all").onclick = () => { filter = "all"; draw(); };
+
+onAuthStateChanged(auth, (user) => {
+  if (unsub) { unsub(); unsub = null; }
+  const ok = user && !user.isAnonymous && user.email === ADMIN_EMAIL;
+  $("login").hidden = !!ok;
+  $("app").hidden = !ok;
+  $("msg").textContent = user && !ok ? "This account isn't allowed. Sign out and use the owner account." : "";
+  if (!ok) return;
+  $("who").textContent = "Signed in as " + user.email;
+  unsub = onSnapshot(query(collection(db, "messages")), (snap) => {
+    msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    draw();
+  }, (e) => $("msg").textContent = "Error: " + e.message);
+});
+
+function draw() {
+  const waiting = msgs.filter((m) => !m.reply);
+  $("s-total").textContent = msgs.length;
+  $("s-wait").textContent = waiting.length;
+  const list = $("list");
+  list.textContent = "";
+  (filter === "wait" ? waiting : msgs).forEach((m) => {
+    const c = document.createElement("div");
+    c.className = "card" + (m.reply ? "" : " waiting");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const when = m.createdAt ? new Date(m.createdAt.seconds * 1000).toLocaleString() : "just now";
+    meta.textContent = (m.name || "Anonymous") + " · " + when + " · id " + (m.uid || "").slice(0, 6);
+    const t = document.createElement("div");
+    t.className = "text";
+    t.textContent = m.text;
+    c.append(meta, t);
+    if (m.reply) {
+      const s = document.createElement("div");
+      s.className = "sent";
+      s.textContent = "Your reply: " + m.reply + (m.seen ? " (seen)" : " (not seen yet)");
+      c.appendChild(s);
+    }
+    const ta = document.createElement("textarea");
+    ta.placeholder = m.reply ? "Edit your reply..." : "Write a reply...";
+    const row = document.createElement("div");
+    row.className = "row";
+    const send = document.createElement("button");
+    send.textContent = m.reply ? "Update reply" : "Send reply";
+    send.onclick = () => {
+      const v = ta.value.trim();
+      if (!v) return;
+      updateDoc(doc(db, "messages", m.id), { reply: v, replyAt: serverTimestamp(), seen: false }).catch((e) => alert(e.message));
+    };
+    const del = document.createElement("button");
+    del.className = "alt";
+    del.textContent = "Delete";
+    del.onclick = () => { if (confirm("Delete this message?")) deleteDoc(doc(db, "messages", m.id)); };
+    row.append(send, del);
+    c.append(ta, row);
+    list.appendChild(c);
+  });
+  if (!list.children.length) list.textContent = "Nothing here yet.";
+}
+</script>
+</body>
+</html>
