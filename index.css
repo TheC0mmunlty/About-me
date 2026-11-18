@@ -1,1 +1,80 @@
+:root {
+  --bg: #f3f6f4;
+  --text: #17302b;
+  --muted: #4f6b64;
+  --accent: #0f766e;
+  --line: #c9d6d1;
+}
 
+:root[data-theme="dark"] {
+  --bg: #0e1c19;
+  --text: #e6f0ed;
+  --muted: #9bb5ae;
+  --accent: #5eead4;
+  --line: #24403a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+  line-height: 1.7;
+  transition: background 0.2s, color 0.2s;
+}
+
+.hero {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 5rem 1.5rem 2rem;
+}
+
+.intro { margin: 0; color: var(--muted); }
+
+h1 {
+  margin: 0.2rem 0 0.5rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 800;
+  font-size: clamp(2.8rem, 9vw, 5rem);
+  line-height: 1.05;
+}
+
+.tagline { font-size: 1.15rem; color: var(--muted); max-width: 32rem; }
+
+main, footer {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+section { padding: 1.75rem 0; border-top: 1px solid var(--line); }
+
+h2 {
+  margin: 0 0 0.5rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.5rem;
+}
+
+.likes { margin: 0; padding-left: 1.2rem; }
+
+a { color: var(--accent); }
+
+button {
+  margin-top: 1rem;
+  padding: 0.6rem 1.1rem;
+  font: inherit;
+  color: var(--bg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+button:focus-visible, a:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+footer { padding-top: 1.5rem; padding-bottom: 3rem; color: var(--muted); }
