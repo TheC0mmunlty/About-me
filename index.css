@@ -1,120 +1,33 @@
-:root {
-  --text: #17302b;
-  --muted: #3f5f57;
-  --accent: #0f766e;
-  --line: #c9d6d1;
-  --green-border: #86efac;
-}
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
 
-* { box-sizing: border-box; }
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == "sparkly121239@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
 
-body {
-  margin: 0;
-  color: var(--text);
-  background: #7bb661;
-  font-family: "Inter", system-ui, sans-serif;
-  line-height: 1.7;
-}
+    match /messages/{id} {
+      allow read: if request.auth != null
+        && (resource.data.uid == request.auth.uid || isAdmin());
 
-/* Blurry background image */
-body::before {
-  content: "";
-  position: fixed;
-  inset: -30px;
-  z-index: -1;
-  background: url("bg.png") center / cover no-repeat;
-  filter: blur(10px);
-}
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid','name','text','reply','seen','createdAt'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 40
+        && request.resource.data.reply == "";
 
-/* Content panel with light green border */
-.page {
-  max-width: 48rem;
-  margin: 2rem auto;
-  padding: 1rem 0;
-  background: rgba(255, 255, 255, 0.78);
-  border: 4px solid var(--green-border);
-  border-radius: 1.25rem;
-  box-shadow: 0 0 24px rgba(134, 239, 172, 0.55);
-}
+      allow update: if request.auth != null
+        && (isAdmin()
+          || (resource.data.uid == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen'])));
 
-.hero {
-  max-width: 44rem;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem 1.5rem;
-}
-
-.intro { margin: 0; color: var(--muted); }
-
-h1 {
-  margin: 0.2rem 0 0.5rem;
-  font-family: "Fraunces", Georgia, serif;
-  font-weight: 800;
-  font-size: clamp(2.8rem, 9vw, 5rem);
-  line-height: 1.05;
-}
-
-.tagline { font-size: 1.15rem; color: var(--muted); max-width: 32rem; }
-
-main, footer {
-  max-width: 44rem;
-  margin: 0 auto;
-  padding: 0 1.5rem;
-}
-
-section { padding: 1.75rem 0; border-top: 1px solid var(--line); }
-
-h2 {
-  margin: 0 0 0.5rem;
-  font-family: "Fraunces", Georgia, serif;
-  font-size: 1.5rem;
-}
-
-.likes { margin: 0; padding-left: 1.2rem; }
-
-a { color: var(--accent); }
-
-a:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 3px;
-}
-
-footer { padding-top: 1.5rem; padding-bottom: 1.5rem; color: var(--muted); }
-
-/* Social icons */
-.socials {
-  display: flex;
-  gap: 1.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.socials a {
-  display: inline-block;
-  font-size: 2rem;
-  color: var(--muted);
-  transition: transform 0.25s ease, color 0.25s ease, filter 0.25s ease;
-}
-
-.socials a:focus-visible {
-  color: #a855f7;
-  transform: scale(1.4);
-  filter: drop-shadow(0 0 8px #a855f7) drop-shadow(0 0 18px #a855f7);
-}
-
-/* Glow only where a mouse can hover (PCs) */
-@media (hover: hover) {
-  .socials a:hover {
-    color: #a855f7;
-    transform: scale(1.4);
-    filter: drop-shadow(0 0 8px #a855f7) drop-shadow(0 0 18px #a855f7);
+      allow delete: if isAdmin();
+    }
   }
-}
-
-@media (max-width: 52rem) {
-  .page { margin: 1rem; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .socials a { transition: none; }
 }
